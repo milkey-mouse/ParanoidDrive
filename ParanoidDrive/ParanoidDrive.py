@@ -2,6 +2,7 @@ import progressbar
 import argparse
 import base64
 import time
+import json
 import sys
 import os
 
@@ -17,6 +18,7 @@ def main():
     
     keyer = subparsers.add_parser("key", help="Set a new encryption key for your files.")
     keyer.add_argument("-c", "--custom-key", help="Specify a custom encryption key instead of generating one.", action="store_true")
+    keyer.add_argument("-s", "--hide-key", help="Don't show the keys on the command line.", action="store_false", dest="show_key")
     
     args = parser.parse_args()
     if args.operation == "upload":
@@ -24,7 +26,7 @@ def main():
     elif args.operation == "download":
         download(args.path)
     elif args.operation == "key":
-        key(args.custom_key)
+        key(args.custom_key, args.show_key)
     else:
         parser.print_help()
 
@@ -38,6 +40,10 @@ def ask_permission(prompt="Are you sure?", default=False):
         elif response == "":
             return default
 
+def get_config():
+    
+        
+
 def prompt_for_key():
     while True:
         ekey = getpass.getpass("Enter new encryption key: ")
@@ -46,7 +52,7 @@ def prompt_for_key():
         else:
             print("Keys don't match.")
 
-def key(custom_key):
+def key(custom_key, show_key):
     if not ask_permission("Are you sure you want to re-encrypt all of your files? This will take a long time!"):
         print("Aborting.")
         return
@@ -55,7 +61,8 @@ def key(custom_key):
         newkey = get_custom_key()
     else:
         newkey = os.urandom(32)
-        print("New key (hex-encoded): {}".format(base64.b16encode(newkey).decode("utf-8").lower()))
+        if show_key:
+            print("New key (hex-encoded): {}".format(base64.b16encode(newkey).decode("utf-8").lower()))
     try:
         with progressbar.ProgressBar(widgets=["Encrypting ",progressbar.Bar()," [",progressbar.ETA(),"]"]) as bar:
             for i in range(999):
