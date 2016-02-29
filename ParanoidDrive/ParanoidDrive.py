@@ -28,7 +28,9 @@ class Config(object):
         if self.key:
             self.key = base64.b16decode(self.key)
         else:
-
+            print("No encryption key was found. A new one is being generated.")
+            self.key = os.urandom(32)
+            self.save()
 
     def save(self):
         with open(self.path) as config_file:
