@@ -1,5 +1,7 @@
 from progressbar import ProgressBar, Bar, ETA  # progressbar2
 import argparse
+import hashlib
+import getpass
 import base64
 import time
 import json
@@ -9,11 +11,12 @@ import os
 
 class Config(object):
     def __init__(self, path="~/.paranoid"):
-        self.path = os.path.expanduser(path)
+        self._path = os.path.expanduser(path)
         self.key = None
+        self.newkey = None
         try:
-            with open(self.path, "r") as config_file:
-                self.__dict__.update(json.read(config_file))
+            with open(self._path, "r") as config_file:
+                self.__dict__.update(json.load(config_file))
         except FileNotFoundError:
             if path != "~/.paranoid":
                 raise FileNotFoundError
@@ -25,16 +28,20 @@ class Config(object):
                         self.__dict__.update(json.read(config_file))
                 except FileNotFoundError:
                     pass
+        if self.newkey:
+            print("To finish re-encrypting your files and eradicate your old key, run", file=sys.stderr)
+            print("    " + sys.argv[0] + " key", file=sys.stderr)
+            self.newkey = base64.b16decode(self.key.encode("utf-8").upper())
         if self.key:
-            self.key = base64.b16decode(self.key)
+            self.key = base64.b16decode(self.key.encode("utf-8").upper())
         else:
             print("No encryption key was found. A new one is being generated.")
-            self.key = os.urandom(32)
+            self.key = base64.b16encode(os.urandom(32)).decode("utf-8").lower()
             self.save()
 
     def save(self):
-        with open(self.path) as config_file:
-            json.dump({k:v for k, v in A.__dict__.items() if callable(k) and not k == "path"}, config_file)
+        with open(self._path, "w") as config_file:
+            json.dump({k:v for k, v in self.__dict__.items() if not (callable(k) or k.startswith("_"))}, config_file)
 
 
 class ParanoidDrive:
@@ -82,33 +89,45 @@ class ParanoidDrive:
         while True:
             ekey = getpass.getpass("Enter new encryption key: ")
             if getpass.getpass("Reenter new encryption key: ") == ekey:
+                if len(ekey) != 32:
+                    print("This key isn't exactly 32 characters, hashing using SHA-256 to generate the final key.")
+                    return hashlib.sha256(ekey).digest()
                 return ekey
             else:
                 print("Keys don't match.")
 
     def key(self, custom_key, show_key):
-        if not ask_permission("Are you sure you want to re-encrypt all of your files? This might take a long time!"):
-            print("Aborting.")
-            return
-        newkey = ""
-        if custom_key:
-            newkey = get_custom_key()
+        if self.config.newkey:
+            print("Continuing to re-encrypt files...")
         else:
-            newkey = os.urandom(32)
-            if show_key:
-                print("Old key (hex-encoded): {}".format(base64.b16encode(newkey).decode("utf-8").lower()))
-                print("New key (hex-encoded): {}".format(base64.b16encode(newkey).decode("utf-8").lower()))
+            if not self.ask_permission("Are you sure you want to re-encrypt all of your files? This might take a long time!"):
+                print("Aborting.")
+                return
+            newkey = ""
+            if custom_key:
+                newkey = self.prompt_for_key()
+            else:
+                newkey = os.urandom(32)
+                if show_key:
+                    print("Old key (hex-encoded): {}".format(base64.b16encode(self.config.key).decode("utf-8").lower()))
+                    print("New key (hex-encoded): {}".format(base64.b16encode(newkey).decode("utf-8").lower()))
+            self.config.newkey = base64.b16encode(newkey).decode("utf-8").lower()
+            self.config.save()
         try:
-            #with ProgressBar(widgets=["Encrypting ", Bar(), " [", ETA(), "]"], maxval=100) as bar:
-            #    for i in range(101):
-            #        bar.update(i)
-            #        time.sleep(0.005)
-            raise NotImplementedError()
+            with ProgressBar(widgets=["Encrypting ", Bar(), " [", ETA(), "]"], maxval=100) as bar:
+                for i in range(101):
+                    bar.update(i)
+                    time.sleep(0.005)
         except KeyboardInterrupt:
             print("WARNING: ParanoidDrive hasn't finished re-encrypting your files!", file=sys.stderr)
+            return
+        self.config.key = self.config.newkey
+        del self.config.newkey
+        self.config.save()
+
 
 if __name__ == "__main__":
     try:
-        ParanoidDrive().main()
+        ParanoidDrive()
     except KeyboardInterrupt:
         pass
