@@ -12,36 +12,71 @@ import os
 class Config(object):
     def __init__(self, path="~/.paranoid"):
         self._path = os.path.expanduser(path)
-        self.key = None
-        self.newkey = None
+        self._config_dict = {}
         try:
             with open(self._path, "r") as config_file:
-                self.__dict__.update(json.load(config_file))
+                self._config_dict = json.load(config_file)
         except FileNotFoundError:
             if path != "~/.paranoid":
                 raise FileNotFoundError
             else:
-
                 try:
                     with open(os.path.expanduser("~/.paranoid"), "r") as config_file:
                         print("WARNING: Can't find custom config file, falling back to default location.", file=sys.stderr)
-                        self.__dict__.update(json.read(config_file))
+                        self._config_dict = json.read(config_file)
                 except FileNotFoundError:
                     pass
-        if self.newkey:
-            print("To finish re-encrypting your files and eradicate your old key, run", file=sys.stderr)
-            print("    " + sys.argv[0] + " key", file=sys.stderr)
-            self.newkey = base64.b16decode(self.key.encode("utf-8").upper())
-        if self.key:
-            self.key = base64.b16decode(self.key.encode("utf-8").upper())
+        if "newkey" in self:
+            if not (len(sys.argv) > 1 and sys.argv[1] == "key"):
+                print("To finish re-encrypting your files and eradicate your old key, run", file=sys.stderr)
+                print("    " + sys.argv[0] + " key", file=sys.stderr)
+                print("", file=sys.stderr)
+            self.newkey = self.decode_key(self.newkey)
+        if "key" in self:
+            self.key = self.decode_key(self.key)
         else:
             print("No encryption key was found. A new one is being generated.")
-            self.key = base64.b16encode(os.urandom(32)).decode("utf-8").lower()
+            self.key = os.urandom(32)
             self.save()
+
+    def __contains__(self, value):
+        return value in self._config_dict
+
+    def _get(self, key):
+        if key.startswith("_"):
+            return self.__dict__[key]
+        else:
+            return self.__dict__["_config_dict"][key]
+
+    def _set(self, key, val):
+        if key.startswith("_"):
+            self.__dict__[key] = val
+        else:
+            self.__dict__["_config_dict"][key] = val
+
+    def _del(self, key):
+        if key.startswith("_"):
+            del self.__dict__[key]
+        else:
+            del self.__dict__["_config_dict"][key]
+
+    __getattr__ = __getitem__ = _get
+    __setattr__ = __setitem__ = _set
+    __delattr__ = __delitem__ = _del
+
+    def decode_key(self, key):
+        return base64.b16decode(key.upper().encode("utf-8"))
+
+    def encode_key(self, key):
+        return base64.b16encode(key).decode("utf-8").lower()
 
     def save(self):
         with open(self._path, "w") as config_file:
-            json.dump({k:v for k, v in self.__dict__.items() if not (callable(k) or k.startswith("_"))}, config_file)
+            save_dict = self._config_dict.copy()
+            save_dict["key"] = self.encode_key(save_dict["key"])
+            if "newkey" in save_dict:
+                save_dict["newkey"] = self.encode_key(save_dict["newkey"])
+            json.dump(save_dict, config_file)
 
 
 class ParanoidDrive:
@@ -97,21 +132,19 @@ class ParanoidDrive:
                 print("Keys don't match.")
 
     def key(self, custom_key, show_key):
-        if self.config.newkey:
+        if "newkey" in self.config:
             print("Continuing to re-encrypt files...")
         else:
             if not self.ask_permission("Are you sure you want to re-encrypt all of your files? This might take a long time!"):
                 print("Aborting.")
                 return
-            newkey = ""
             if custom_key:
-                newkey = self.prompt_for_key()
+                self.config.newkey = self.prompt_for_key()
             else:
-                newkey = os.urandom(32)
+                self.config.newkey = os.urandom(32)
                 if show_key:
-                    print("Old key (hex-encoded): {}".format(base64.b16encode(self.config.key).decode("utf-8").lower()))
-                    print("New key (hex-encoded): {}".format(base64.b16encode(newkey).decode("utf-8").lower()))
-            self.config.newkey = base64.b16encode(newkey).decode("utf-8").lower()
+                    print("Old key (hex-encoded): {}".format(self.config.encode_key(self.config.key)))
+                    print("New key (hex-encoded): {}".format(self.config.encode_key(self.config.newkey)))
             self.config.save()
         try:
             with ProgressBar(widgets=["Encrypting ", Bar(), " [", ETA(), "]"], maxval=100) as bar:
