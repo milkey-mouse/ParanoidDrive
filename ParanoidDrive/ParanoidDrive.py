@@ -23,7 +23,7 @@ class Config(object):
                 try:
                     with open(os.path.expanduser("~/.paranoid"), "r") as config_file:
                         print("WARNING: Can't find custom config file, falling back to default location.", file=sys.stderr)
-                        self._config_dict = json.read(config_file)
+                        self._config_dict = json.load(config_file)
                 except FileNotFoundError:
                     pass
         if "newkey" in self:
@@ -108,7 +108,6 @@ class ParanoidDrive:
         else:
             parser.print_help()
 
-    @staticmethod
     def ask_permission(self, prompt="Are you sure?", default=False):
         while True:
             response = input(prompt + (" (Y/n): " if default else " (y/N): ")).lower()
@@ -119,7 +118,6 @@ class ParanoidDrive:
             elif response == "":
                 return default
 
-    @staticmethod
     def prompt_for_key(self):
         while True:
             ekey = getpass.getpass("Enter new encryption key: ")
